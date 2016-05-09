@@ -2,7 +2,6 @@ package nl.knaw.huygens.timbuctoo.server.endpoints.v2;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -15,9 +14,9 @@ import nl.knaw.huygens.timbuctoo.search.description.property.PropertyDescriptorF
 import nl.knaw.huygens.timbuctoo.search.description.propertyparser.PropertyParserFactory;
 import nl.knaw.huygens.timbuctoo.server.GraphWrapper;
 import nl.knaw.huygens.timbuctoo.server.mediatypes.v2.gremlin.RootQuery;
+import org.apache.tinkerpop.gremlin.groovy.DefaultImportCustomizerProvider;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.BulkSet;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Property;
@@ -36,6 +35,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -62,12 +62,16 @@ public class Gremlin {
   public Gremlin(GraphWrapper wrapper) {
     this.wrapper = wrapper;
     this.engine = new GremlinGroovyScriptEngine();
+
+    final DefaultImportCustomizerProvider provider = new DefaultImportCustomizerProvider();
+    final Set<String> allImports = provider.getAllImports();
+    allImports.removeIf(path -> path.indexOf("groovy.") > -1);
+    engine.addImports(allImports);
+
     this.bindings = engine.createBindings();
     propertyParserFactory = new PropertyParserFactory();
     propertyDescriptorFactory = new PropertyDescriptorFactory(propertyParserFactory);
   }
-
-  private class StaticWorkaround extends __ {}
 
   @POST
   @Consumes("application/json")
@@ -103,24 +107,18 @@ public class Gremlin {
   }
 
   @GET
-  @Produces("text/plain")
-  public Response get(@QueryParam("query") String query, @QueryParam("timelimit") @DefaultValue("500") int timelimit) {
-    if (Strings.isNullOrEmpty(query)) {
-      String usageMessage = "Usage: ?query=g.V().has(\"tim_id\", \"37981a95-e527-40a8-9528-7d32c5c5f360\")" +
-        ".has(\"isLatest\", true).properties()\n" +
-        "or ?query=maria.out()\n" +
-        "by default the query is cut off after 500 ms. You can enlarge this through the ?timelimit=500 query param.\n";
-      return Response.ok(usageMessage).build();
-    }
-    return handlePlainQuery(query, timelimit);
+  @Produces("text/html")
+  public Response get() {
+    return Response.temporaryRedirect(URI.create("/static/gremlin")).build();
   }
 
   private Response handlePlainQuery(String query, int timeLimit) {
     bindings.put("g", wrapper.getGraph().traversal());
     bindings.put("maria", wrapper.getGraph().traversal().V().has("tim_id", "37981a95-e527-40a8-9528-7d32c5c5f360"));
-    bindings.put("__", new StaticWorkaround());
     try {
-      return Response.ok(evaluateQuery(query + ".timeLimit(" + timeLimit + ")")).build();
+      final String result = evaluateQuery(query + ".timeLimit(" + timeLimit + ")");
+      wrapper.getGraph().tx().commit();
+      return Response.ok(result).build();
     } catch (ScriptException e) {
       LOG.error(e.getMessage(), e);
       return Response.status(500).entity(e.getMessage()).build();
@@ -278,11 +276,18 @@ public class Gremlin {
   }
 
   private void dumpVertex(Vertex vertex, StringBuilder result) {
+    ObjectMapper map = new ObjectMapper();
     result.append(String.format("Vertex [%s]:\n", vertex.id()));
     ArrayList<VertexProperty<Object>> properties = Lists.newArrayList(vertex.properties());
     properties.sort((o1, o2) -> java.text.Collator.getInstance().compare(o1.label(), o2.label()));
     for (VertexProperty<Object> property : properties) {
-      result.append(String.format("  %s: %s\n", property.label(), property.value()));
+      String stringified;
+      try {
+        stringified = map.writeValueAsString(property.value());
+      } catch (JsonProcessingException e) {
+        stringified = String.format("%s", map);
+      }
+      result.append(String.format("  %s: %s\n", property.label(), stringified));
     }
     for (Edge edge : ImmutableList.copyOf(vertex.edges(IN))) {
       result.append(String.format("  <--[%s]-- v[%s]\n", edge.label(), edge.outVertex().id()));
@@ -293,12 +298,19 @@ public class Gremlin {
   }
 
   private void dumpEdge(Edge edge, StringBuilder result) {
+    ObjectMapper map = new ObjectMapper();
     result.append(String.format("v[%s] --[%s]--> v[%s]\n",
             edge.outVertex().id(), edge.label(), edge.inVertex().id()));
     ArrayList<Property<Object>> properties = Lists.newArrayList(edge.properties());
     properties.sort((o1, o2) -> java.text.Collator.getInstance().compare(o1.key(), o2.key()));
     for (Property<Object> property : properties) {
-      result.append(String.format("  %s: %s\n", property.key(), property.value()));
+      String stringified;
+      try {
+        stringified = map.writeValueAsString(property.value());
+      } catch (JsonProcessingException e) {
+        stringified = String.format("%s", map);
+      }
+      result.append(String.format("  %s: %s\n", property.key(), stringified));
     }
   }
 
@@ -342,7 +354,11 @@ public class Gremlin {
 
       dumpItem(traversalResult.next(), result);
     }
-    return result.toString();
+    if (result.length() > 0) {
+      return result.toString();
+    } else {
+      return "No results...";
+    }
   }
 
 }
