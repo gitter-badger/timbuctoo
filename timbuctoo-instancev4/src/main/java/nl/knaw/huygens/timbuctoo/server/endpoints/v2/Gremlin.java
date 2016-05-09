@@ -2,9 +2,11 @@ package nl.knaw.huygens.timbuctoo.server.endpoints.v2;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import nl.knaw.huygens.timbuctoo.model.Datable;
 import nl.knaw.huygens.timbuctoo.model.LocationNames;
 import nl.knaw.huygens.timbuctoo.model.PersonNames;
@@ -58,6 +60,7 @@ public class Gremlin {
   private final Bindings bindings;
   private PropertyDescriptorFactory propertyDescriptorFactory;
   private PropertyParserFactory propertyParserFactory;
+  private final ObjectMapper mapper;
 
   public Gremlin(GraphWrapper wrapper) {
     this.wrapper = wrapper;
@@ -67,10 +70,12 @@ public class Gremlin {
     final Set<String> allImports = provider.getAllImports();
     allImports.removeIf(path -> path.indexOf("groovy.") > -1);
     engine.addImports(allImports);
+    engine.addImports(Sets.newHashSet("import org.apache.tinkerpop.gremlin.neo4j.process.traversal.LabelP"));
 
     this.bindings = engine.createBindings();
     propertyParserFactory = new PropertyParserFactory();
     propertyDescriptorFactory = new PropertyDescriptorFactory(propertyParserFactory);
+    mapper = new ObjectMapper();
   }
 
   @POST
@@ -113,15 +118,19 @@ public class Gremlin {
   }
 
   private Response handlePlainQuery(String query, int timeLimit) {
-    bindings.put("g", wrapper.getGraph().traversal());
-    bindings.put("maria", wrapper.getGraph().traversal().V().has("tim_id", "37981a95-e527-40a8-9528-7d32c5c5f360"));
-    try {
-      final String result = evaluateQuery(query + ".timeLimit(" + timeLimit + ")");
-      wrapper.getGraph().tx().commit();
-      return Response.ok(result).build();
-    } catch (ScriptException e) {
-      LOG.error(e.getMessage(), e);
-      return Response.status(500).entity(e.getMessage()).build();
+    if (Strings.isNullOrEmpty(query)) {
+      return Response.ok("").build();
+    } else {
+      bindings.put("g", wrapper.getGraph().traversal());
+      bindings.put("maria", wrapper.getGraph().traversal().V().has("tim_id", "37981a95-e527-40a8-9528-7d32c5c5f360"));
+      try {
+        final String result = evaluateQuery(query + ".timeLimit(" + timeLimit + ")");
+        wrapper.getGraph().tx().commit();
+        return Response.ok(result).build();
+      } catch (ScriptException e) {
+        LOG.error(e.getMessage(), e);
+        return Response.status(500).entity(e.getMessage()).build();
+      }
     }
   }
 
@@ -268,7 +277,6 @@ public class Gremlin {
 
   private String getVertexType(Vertex vertex) throws IOException {
     String types = (String) vertex.property("types").value();
-    ObjectMapper mapper = new ObjectMapper();
     List<String> typeList = mapper.readValue(types,
             mapper.getTypeFactory().constructCollectionType(List.class, String.class));
     typeList.sort((o1, o2) -> o1.length() - o2.length());
@@ -276,16 +284,15 @@ public class Gremlin {
   }
 
   private void dumpVertex(Vertex vertex, StringBuilder result) {
-    ObjectMapper map = new ObjectMapper();
     result.append(String.format("Vertex [%s]:\n", vertex.id()));
     ArrayList<VertexProperty<Object>> properties = Lists.newArrayList(vertex.properties());
     properties.sort((o1, o2) -> java.text.Collator.getInstance().compare(o1.label(), o2.label()));
     for (VertexProperty<Object> property : properties) {
       String stringified;
       try {
-        stringified = map.writeValueAsString(property.value());
+        stringified = mapper.writeValueAsString(property.value());
       } catch (JsonProcessingException e) {
-        stringified = String.format("%s", map);
+        stringified = String.format("%s", mapper);
       }
       result.append(String.format("  %s: %s\n", property.label(), stringified));
     }
@@ -298,7 +305,6 @@ public class Gremlin {
   }
 
   private void dumpEdge(Edge edge, StringBuilder result) {
-    ObjectMapper map = new ObjectMapper();
     result.append(String.format("v[%s] --[%s]--> v[%s]\n",
             edge.outVertex().id(), edge.label(), edge.inVertex().id()));
     ArrayList<Property<Object>> properties = Lists.newArrayList(edge.properties());
@@ -306,9 +312,9 @@ public class Gremlin {
     for (Property<Object> property : properties) {
       String stringified;
       try {
-        stringified = map.writeValueAsString(property.value());
+        stringified = mapper.writeValueAsString(property.value());
       } catch (JsonProcessingException e) {
-        stringified = String.format("%s", map);
+        stringified = String.format("%s", mapper);
       }
       result.append(String.format("  %s: %s\n", property.key(), stringified));
     }
@@ -328,7 +334,6 @@ public class Gremlin {
       });
 
     } else if (item instanceof LinkedHashMap) {
-      ObjectMapper mapper = new ObjectMapper();
       Map<String, String> map = new HashMap<>();
 
       LinkedHashMap lhm = (LinkedHashMap<String, Object>) item;
