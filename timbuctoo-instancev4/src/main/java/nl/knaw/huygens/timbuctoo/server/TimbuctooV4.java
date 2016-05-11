@@ -31,6 +31,7 @@ import nl.knaw.huygens.timbuctoo.security.JsonBasedAuthenticator;
 import nl.knaw.huygens.timbuctoo.security.JsonBasedAuthorizer;
 import nl.knaw.huygens.timbuctoo.security.JsonBasedUserStore;
 import nl.knaw.huygens.timbuctoo.security.LoggedInUserStore;
+import nl.knaw.huygens.timbuctoo.server.databasemigration.AutocompleteLuceneIndexDatabaseMigration;
 import nl.knaw.huygens.timbuctoo.server.databasemigration.DatabaseMigration;
 import nl.knaw.huygens.timbuctoo.server.databasemigration.InvariantsFix;
 import nl.knaw.huygens.timbuctoo.server.databasemigration.LabelDatabaseMigration;
@@ -135,7 +136,8 @@ public class TimbuctooV4 extends Application<TimbuctooConfiguration> {
       new LabelDatabaseMigration(),
       new WwPersonSortIndexesDatabaseMigration(),
       new WwDocumentSortIndexesDatabaseMigration(),
-      new InvariantsFix(vres)
+      new InvariantsFix(vres),
+      new AutocompleteLuceneIndexDatabaseMigration()
     );
 
     final TinkerpopGraphManager graphManager = new TinkerpopGraphManager(configuration, databaseMigrations);
