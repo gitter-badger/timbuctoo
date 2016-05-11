@@ -55,6 +55,7 @@ import nl.knaw.huygens.timbuctoo.server.healthchecks.DatabaseHealthCheck;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.DatabaseValidator;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.EncryptionAlgorithmHealthCheck;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.FileHealthCheck;
+import nl.knaw.huygens.timbuctoo.server.healthchecks.databasechecks.FullTextIndexCheck;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.databasechecks.InvariantsCheck;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.databasechecks.LabelsAddedToVertexDatabaseCheck;
 import nl.knaw.huygens.timbuctoo.server.healthchecks.databasechecks.SortIndexesDatabaseCheck;
@@ -224,7 +225,8 @@ public class TimbuctooV4 extends Application<TimbuctooConfiguration> {
     List<DatabaseCheck> databaseChecks = Lists.newArrayList(
       new LabelsAddedToVertexDatabaseCheck(),
       new SortIndexesDatabaseCheck(),
-      new InvariantsCheck(vres)
+      new InvariantsCheck(vres),
+      new FullTextIndexCheck(graphManager)
     );
     return new DatabaseValidator(graphManager, 1, Clock.systemUTC(), databaseChecks);
   }
