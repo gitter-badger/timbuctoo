@@ -36,16 +36,16 @@ public class TinkerpopGraphManager extends HealthCheck implements Managed, Graph
   public TinkerpopGraphManager(TimbuctooConfiguration configuration, List<DatabaseMigration> databaseMigrations) {
     this.configuration = configuration;
     this.databaseMigrations = databaseMigrations;
-  }
 
-  @Override
-  public void start() throws Exception {
     databasePath = new File(configuration.getDatabasePath());
     graphDatabase = new GraphDatabaseFactory()
             .newEmbeddedDatabaseBuilder(databasePath)
             .setConfig(GraphDatabaseSettings.allow_store_upgrade, "true")
             .newGraphDatabase();
+  }
 
+  @Override
+  public void start() throws Exception {
     this.graph = Neo4jGraph.open(new Neo4jGraphAPIImpl(graphDatabase));
 
     new MigrateDatabase(this, databaseMigrations).run();
